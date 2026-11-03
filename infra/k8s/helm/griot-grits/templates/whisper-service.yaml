@@ -1,0 +1,16 @@
+{{- if .Values.whisper.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-whisper
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/component: whisper
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.whisper.servicePort }}
+      targetPort: http
+{{- end }}

@@ -1,0 +1,41 @@
+{{- if .Values.mongodb.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-mongodb
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+spec:
+  replicas: {{ .Values.mongodb.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: mongodb
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+{{ include "griot-grits.labels" . | indent 8 }}
+        app.kubernetes.io/component: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+          imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.mongodb.servicePort }}
+              name: mongo
+          envFrom:
+            - secretRef:
+                name: {{ include "griot-grits.fullname" . }}-mongodb-secret
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /var/lib/mongodb/data
+      volumes:
+        - name: mongodb-data
+          {{- if .Values.mongodb.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "griot-grits.fullname" . }}-mongodb
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

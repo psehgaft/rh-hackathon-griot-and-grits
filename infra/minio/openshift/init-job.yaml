@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-minio
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: init
+        image: quay.io/minio/mc:latest
+        command: ["/bin/sh", "-c"]
+        env:
+        # 1. Inject the namespace name (e.g., gng-jdoe)
+        - name: CURRENT_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: HOME
+          value: "/tmp"
+        - name: MINIO_ROOT_USER
+          value: "minioadmin"
+        - name: MINIO_ROOT_PASSWORD
+          value: "minioadmin"
+        args:
+        - |
+          # 2. Extract username by removing 'gng-' prefix
+          # If namespace is 'gng-jdoe', USER becomes 'jdoe'
+          USER=${CURRENT_NAMESPACE#gng-}
+          
+          echo "Detected User: ${USER}"
+          echo "Target MinIO: http://minio.gng-${USER}.svc.cluster.local:9000"
+
+          echo "Waiting for MinIO to be ready..."
+          until mc alias set myminio http://minio.gng-${USER}.svc.cluster.local:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; do
+            echo "MinIO is unavailable - sleeping"
+            sleep 2
+          done
+
+          echo "MinIO is ready - creating bucket..."
+
+          # Create artifacts bucket
+          mc mb myminio/artifacts --ignore-existing
+
+          # Set public download policy (optional - adjust as needed)
+          # mc anonymous set download myminio/artifacts
+
+          echo "✓ Bucket 'artifacts' created successfully"
+          echo "Done."

@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-mongodb
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: init
+        image: image-registry.openshift-image-registry.svc:5000/openshift/mongodb:latest
+        # Inject namespace if you need dynamic variables (optional)
+        env:
+        - name: CURRENT_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          # 1. FIX: Set HOME to /tmp so mongosh can write its history file without error
+          export HOME=/tmp
+
+          # (Optional) Dynamic user logic if needed later
+          # USER=${CURRENT_NAMESPACE#gng-}
+
+          echo "Waiting for MongoDB to be ready..."
+          # Note: We use the Service name 'mongodb' which resolves locally
+          until mongosh "mongodb://admin:gngdevpass12@mongodb:27017/gngdb?authSource=admin" --eval "db.adminCommand('ping')"; do
+            echo "MongoDB is unavailable - sleeping"
+            sleep 2
+          done
+
+          echo "MongoDB is ready - creating collections and sample data..."
+
+          mongosh "mongodb://admin:gngdevpass12@mongodb:27017/gngdb?authSource=admin" <<EOF
+            db.collections.insertOne({
+              name: "Demo Collection",
+              description: "Sample collection for hackathon",
+              created_at: new Date(),
+              owner: "admin_demo"
+            });
+
+            db.artifacts.insertOne({
+              title: "Sample Artifact",
+              collection_id: "demo",
+              created_at: new Date(),
+              metadata: {
+                type: "demo",
+                status: "active"
+              }
+            });
+
+            print("Sample data created successfully");
+          EOF
+
+          echo "Done."

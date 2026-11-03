@@ -1,0 +1,12 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-frontend-config
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+data:
+  NEXT_PUBLIC_APP_NAME: {{ .Values.frontend.env.NEXT_PUBLIC_APP_NAME | quote }}
+  NEXT_PUBLIC_AUTH_ENABLED: {{ .Values.frontend.env.NEXT_PUBLIC_AUTH_ENABLED | quote }}
+  NEXT_PUBLIC_API_URL: {{ .Values.frontend.env.NEXT_PUBLIC_API_URL | quote }}
+{{- end }}

@@ -1,0 +1,15 @@
+# Development-friendly overrides (example)
+backend:
+  git:
+    enabled: true
+    revision: "main"
+frontend:
+  git:
+    enabled: true
+    revision: "main"
+mongodb:
+  auth:
+    password: "dev-password"
+    adminPassword: "dev-admin-password"
+minio:
+  rootPassword: "dev-minio-password"

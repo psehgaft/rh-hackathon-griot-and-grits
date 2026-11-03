@@ -1,0 +1,16 @@
+{{- if and .Values.mongodb.enabled .Values.mongodb.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-mongodb
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.mongodb.persistence.size | quote }}
+  {{- if .Values.mongodb.persistence.storageClassName }}
+  storageClassName: {{ .Values.mongodb.persistence.storageClassName | quote }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: griot-grits-prod
+  namespace: openshift-gitops
+spec:
+  project: griot-grits
+  source:
+    repoURL: https://github.com/ORG/griot-grits-gitops.git
+    targetRevision: v1.0.0
+    path: k8s/helm/griot-grits
+    helm:
+      valueFiles:
+        - values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gng-user42
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

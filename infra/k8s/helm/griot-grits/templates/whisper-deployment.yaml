@@ -1,0 +1,34 @@
+{{- if .Values.whisper.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-whisper
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+spec:
+  replicas: {{ .Values.whisper.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: whisper
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+{{ include "griot-grits.labels" . | indent 8 }}
+        app.kubernetes.io/component: whisper
+    spec:
+      containers:
+        - name: whisper
+          image: "{{ .Values.whisper.image.repository }}:{{ .Values.whisper.image.tag }}"
+          imagePullPolicy: {{ .Values.whisper.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.whisper.servicePort }}
+              name: http
+          env:
+            - name: ASR_MODEL
+              value: {{ .Values.whisper.env.ASR_MODEL | quote }}
+            - name: ASR_ENGINE
+              value: {{ .Values.whisper.env.ASR_ENGINE | quote }}
+          resources:
+{{ toYaml .Values.whisper.resources | indent 12 }}
+{{- end }}

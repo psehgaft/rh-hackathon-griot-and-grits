@@ -1,0 +1,57 @@
+{{- if .Values.minio.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-minio
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+spec:
+  replicas: {{ .Values.minio.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: minio
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+{{ include "griot-grits.labels" . | indent 8 }}
+        app.kubernetes.io/component: minio
+    spec:
+      containers:
+        - name: minio
+          image: "{{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}"
+          imagePullPolicy: {{ .Values.minio.image.pullPolicy }}
+          command: ["bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              exec minio server /data --console-address :{{ .Values.minio.service.consolePort }}
+          ports:
+            - containerPort: {{ .Values.minio.service.apiPort }}
+              name: api
+            - containerPort: {{ .Values.minio.service.consolePort }}
+              name: console
+          envFrom:
+            - secretRef:
+                name: {{ include "griot-grits.fullname" . }}-minio-secret
+          env:
+            {{- if .Values.minio.public.serverURL }}
+            - name: MINIO_SERVER_URL
+              value: {{ .Values.minio.public.serverURL | quote }}
+            {{- end }}
+            {{- if .Values.minio.public.browserRedirectURL }}
+            - name: MINIO_BROWSER_REDIRECT_URL
+              value: {{ .Values.minio.public.browserRedirectURL | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+      volumes:
+        - name: minio-data
+          {{- if .Values.minio.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "griot-grits.fullname" . }}-minio
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

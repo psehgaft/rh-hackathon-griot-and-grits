@@ -1,0 +1,389 @@
+#!/bin/bash
+# Griot & Grits - OpenShift User Setup
+# Sets up a personal namespace for hackathon development on RHOAI/OpenShift
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+print_status() { echo -e "${CYAN}▶${NC} ${BOLD}$1${NC}"; }
+print_success() { echo -e "${GREEN}✓${NC} $1"; }
+print_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
+print_error() { echo -e "${RED}✗${NC} $1"; }
+print_info() { echo -e "${BLUE}ℹ${NC} ${DIM}$1${NC}"; }
+print_step() { echo -e "\n${MAGENTA}${BOLD}→ $1${NC}"; }
+print_header() {
+    echo ""
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${CYAN}  $1${NC}"
+    echo -e "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -u, --username NAME     Your username/identifier (default: prompt)"
+    echo "  -s, --skip-services     Skip MongoDB + MinIO deployment"
+    echo "  -c, --with-code         Deploy frontend and backend code with hot-reload"
+    echo "  -d, --delete            Delete your namespace and all resources"
+    echo "  -h, --help              Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                      Interactive setup (will prompt for username)"
+    echo "  $0 -u jdoe              Setup for user 'jdoe'"
+    echo "  $0 -u jdoe --with-code  Setup with code deployment"
+    echo "  $0 -u jdoe --delete     Delete namespace for user 'jdoe'"
+}
+
+USERNAME=""
+SKIP_SERVICES=false
+WITH_CODE=false
+DELETE=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -u|--username)
+            USERNAME="$2"
+            shift 2
+            ;;
+        -s|--skip-services)
+            SKIP_SERVICES=true
+            shift
+            ;;
+        -c|--with-code)
+            WITH_CODE=true
+            shift
+            ;;
+        -d|--delete)
+            DELETE=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            print_error "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# Check oc CLI
+if ! command -v oc &> /dev/null; then
+    print_error "oc CLI not found. Install from: https://docs.openshift.com/container-platform/latest/cli_reference/openshift_cli/getting-started-cli.html"
+    exit 1
+fi
+
+# Check if logged in
+if ! oc whoami &> /dev/null; then
+    print_error "Not logged into OpenShift."
+    echo ""
+    echo "Please login first:"
+    echo "  oc login <cluster-url>"
+    echo ""
+    echo "Or use the web console login:"
+    echo "  1. Go to your OpenShift web console"
+    echo "  2. Click your username (top right) → Copy login command"
+    echo "  3. Paste and run the command in your terminal"
+    exit 1
+fi
+
+print_header "🚀 Griot & Grits - OpenShift Setup"
+
+print_info "Cluster: $(oc whoami --show-server)"
+print_info "User: $(oc whoami)"
+echo ""
+
+# Auto-detect username from oc whoami if not provided
+if [ -z "$USERNAME" ]; then
+    DETECTED_USER=$(oc whoami)
+
+    print_step "Namespace Selection"
+    echo -e "${BOLD}Detected user:${NC} ${GREEN}$DETECTED_USER${NC}"
+    echo ""
+    echo -e "Use this for your namespace ${CYAN}(gng-$DETECTED_USER)${NC}? ${DIM}[Y/n]${NC}"
+    read -p "→ " USE_DETECTED
+
+    if [[ "$USE_DETECTED" =~ ^[Nn] ]]; then
+        echo ""
+        echo "Enter your preferred username/identifier:"
+        echo "This will be used to create your namespace: gng-<username>"
+        echo ""
+        read -p "Username: " USERNAME
+
+        if [ -z "$USERNAME" ]; then
+            print_error "Username cannot be empty"
+            exit 1
+        fi
+    else
+        USERNAME="$DETECTED_USER"
+    fi
+fi
+
+# Clean username (lowercase, alphanumeric and dash only)
+USERNAME=$(echo "$USERNAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+NAMESPACE="gng-${USERNAME}"
+
+# Create .openshift-config file to save namespace for future use
+CONFIG_FILE="$ROOT_DIR/.openshift-config"
+
+# Delete mode
+if [ "$DELETE" = true ]; then
+    print_warning "This will DELETE namespace '$NAMESPACE' and ALL resources in it!"
+    read -p "Are you sure? (yes/no): " CONFIRM
+
+    if [ "$CONFIRM" != "yes" ]; then
+        echo "Cancelled."
+        exit 0
+    fi
+
+    print_status "Deleting namespace: $NAMESPACE"
+
+    if oc delete namespace "$NAMESPACE" 2>/dev/null; then
+        print_success "Namespace deleted: $NAMESPACE"
+    else
+        print_warning "Namespace not found or already deleted"
+    fi
+
+    # Clean up config file
+    if [ -f "$CONFIG_FILE" ]; then
+        rm "$CONFIG_FILE"
+        print_success "Removed local configuration"
+    fi
+
+    exit 0
+fi
+
+# Create or switch to namespace
+print_step "Setting Up Namespace"
+
+echo -e "${BOLD}Namespace:${NC} ${CYAN}$NAMESPACE${NC}"
+
+if oc get namespace "$NAMESPACE" &> /dev/null; then
+    print_success "Namespace already exists"
+    oc project "$NAMESPACE" &>/dev/null
+else
+    print_status "Creating new namespace..."
+    if oc new-project "$NAMESPACE" &>/dev/null; then
+        print_success "Created namespace"
+    elif oc create namespace "$NAMESPACE" &>/dev/null; then
+        print_success "Created namespace"
+        oc project "$NAMESPACE" &>/dev/null
+    else
+        print_error "Failed to create namespace. You may not have permission."
+        exit 1
+    fi
+
+    # Label the namespace for easy cleanup
+    oc label namespace "$NAMESPACE" app=griot-grits-hackathon &>/dev/null || true
+fi
+
+# Save namespace to config
+echo "NAMESPACE=$NAMESPACE" > "$CONFIG_FILE"
+echo "USERNAME=$USERNAME" >> "$CONFIG_FILE"
+print_success "Configuration saved"
+print_info "Config file: $CONFIG_FILE"
+
+echo ""
+
+# Set resource quotas (optional, commented out by default)
+# print_status "Setting resource quotas..."
+# cat <<EOF | oc apply -f - -n "$NAMESPACE"
+# apiVersion: v1
+# kind: ResourceQuota
+# metadata:
+#   name: hackathon-quota
+# spec:
+#   hard:
+#     requests.cpu: "4"
+#     requests.memory: 8Gi
+#     limits.cpu: "8"
+#     limits.memory: 16Gi
+#     persistentvolumeclaims: "5"
+# EOF
+
+# Deploy MongoDB + MinIO if not skipped
+if [ "$SKIP_SERVICES" = false ]; then
+    print_step "Deploying Backend Services"
+
+    "$ROOT_DIR/scripts/deploy-services.sh" --namespace "$NAMESPACE"
+
+    echo ""
+fi
+
+# Create environment configuration for backend
+print_step "Creating Environment Configuration"
+
+ENV_FILE="$ROOT_DIR/.env.openshift"
+cat > "$ENV_FILE" << EOF
+# =============================================================================
+# Griot & Grits - OpenShift Environment
+# =============================================================================
+# Generated for user: $USERNAME
+# Namespace: $NAMESPACE
+# Generated at: $(date)
+
+# =============================================================================
+# Environment
+# =============================================================================
+ENVIRONMENT=development
+DEBUG=true
+APP_NAME=Griot and Grits API
+APP_VERSION=0.1.0
+
+# =============================================================================
+# MongoDB Database
+# =============================================================================
+DB_URI=mongodb://admin:gngdevpass12@mongodb:27017/gngdb
+DB_NAME=gngdb
+DB_MAX_POOL_SIZE=10
+DB_MIN_POOL_SIZE=1
+
+# If using from outside the cluster (via port-forward):
+# oc port-forward service/mongodb 27017:27017 -n $NAMESPACE
+# Then use: mongodb://admin:gngdevpass12@localhost:27017/gngdb
+
+# =============================================================================
+# MinIO Object Storage
+# =============================================================================
+STORAGE_ENDPOINT=minio:9000
+STORAGE_ACCESS_KEY=minioadmin
+STORAGE_SECRET_KEY=minioadmin
+STORAGE_BUCKET=artifacts
+STORAGE_REGION=us-east-1
+STORAGE_SECURE=false
+
+# If using from outside the cluster (via port-forward):
+# oc port-forward service/minio 9000:9000 -n $NAMESPACE
+# Then use: STORAGE_ENDPOINT=localhost:9000
+
+# =============================================================================
+# Globus Archive (disabled for hackathon)
+# =============================================================================
+GLOBUS_ENABLED=false
+
+# =============================================================================
+# Processing Pipeline
+# =============================================================================
+PROCESSING_MODE=sync
+PROCESSING_ENABLE_METADATA_EXTRACTION=true
+PROCESSING_ENABLE_TRANSCRIPTION=false
+PROCESSING_ENABLE_LLM_ENRICHMENT=false
+
+# To enable Whisper transcription, deploy it and set:
+# PROCESSING_ENABLE_TRANSCRIPTION=true
+# PROCESSING_TRANSCRIPTION_API_URL=https://<whisper-route>
+
+# =============================================================================
+# CORS Settings
+# =============================================================================
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+CORS_ALLOW_CREDENTIALS=true
+CORS_ALLOW_METHODS=*
+CORS_ALLOW_HEADERS=*
+
+# =============================================================================
+# OpenShift Metadata
+# =============================================================================
+OPENSHIFT_NAMESPACE=$NAMESPACE
+OPENSHIFT_USERNAME=$USERNAME
+EOF
+
+print_success "Environment configuration saved"
+print_info "File: $ENV_FILE"
+
+# Deploy application code if requested
+if [ "$WITH_CODE" = true ]; then
+    echo ""
+    print_step "Deploying Application Code"
+
+    "$ROOT_DIR/scripts/deploy-code.sh" --namespace "$NAMESPACE"
+
+    echo ""
+    print_step "Starting Code Auto-Sync"
+
+    # Start watcher in background
+    nohup "$ROOT_DIR/scripts/watch-code.sh" --namespace "$NAMESPACE" > "$ROOT_DIR/.watch-code.log" 2>&1 &
+    WATCHER_PID=$!
+    echo "$WATCHER_PID" > "$ROOT_DIR/.watch-code.pid"
+
+    print_success "Code watcher started (PID: $WATCHER_PID)"
+    print_info "Watching: $ROOT_DIR/gng-backend and $ROOT_DIR/gng-web"
+    print_info "Logs: $ROOT_DIR/.watch-code.log"
+    print_info "Stop with: kill \$(cat $ROOT_DIR/.watch-code.pid)"
+
+    echo ""
+fi
+
+print_header "✨ Setup Complete!"
+
+echo -e "${GREEN}${BOLD}✓ Your Environment is Ready!${NC}\n"
+
+echo -e "${BOLD}Namespace:${NC} ${CYAN}$NAMESPACE${NC}"
+echo -e "${BOLD}Services:${NC}"
+echo -e "  ${GREEN}●${NC} MongoDB: ${CYAN}mongodb:27017${NC}"
+echo -e "  ${GREEN}●${NC} MinIO: ${CYAN}minio:9000${NC}"
+echo ""
+
+# Get MinIO console route
+MINIO_CONSOLE=$(oc get route minio-console -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+
+echo -e "${BOLD}📝 Next Steps:${NC}\n"
+
+if [ "$WITH_CODE" = true ]; then
+    # Get application routes
+    FRONTEND_ROUTE=$(oc get route frontend -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+    BACKEND_ROUTE=$(oc get route backend -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+
+    echo -e "${YELLOW}1.${NC} ${BOLD}Start coding!${NC}"
+    echo -e "   ${DIM}cd gng-backend  # Edit backend${NC}"
+    echo -e "   ${DIM}cd gng-web      # Edit frontend${NC}"
+    echo -e "   ${DIM}Changes auto-sync to OpenShift${NC}\n"
+
+    echo -e "${YELLOW}2.${NC} ${BOLD}View your app:${NC}"
+    if [ -n "$FRONTEND_ROUTE" ]; then
+        echo -e "   ${CYAN}https://$FRONTEND_ROUTE${NC}"
+    fi
+    if [ -n "$BACKEND_ROUTE" ]; then
+        echo -e "   ${DIM}API: https://$BACKEND_ROUTE/docs${NC}"
+    fi
+    echo ""
+
+    echo -e "${YELLOW}3.${NC} ${BOLD}Manage watcher:${NC}"
+    echo -e "   ${DIM}./scripts/watch-ctl.sh status  # Check sync status${NC}"
+    echo -e "   ${DIM}./scripts/watch-ctl.sh logs    # View sync logs${NC}\n"
+else
+    echo -e "${YELLOW}1.${NC} ${BOLD}Deploy code with hot-reload:${NC}"
+    echo -e "   ${DIM}$0 --username $USERNAME --with-code${NC}\n"
+
+    echo -e "${YELLOW}2.${NC} ${BOLD}Or use services only:${NC}"
+    echo -e "   ${DIM}source .env.openshift  # Load config${NC}\n"
+fi
+
+if [ -n "$MINIO_CONSOLE" ]; then
+    echo -e "${DIM}MinIO Console: https://$MINIO_CONSOLE (minioadmin/minioadmin)${NC}\n"
+fi
+
+echo -e "${BOLD}🛠  Useful Commands:${NC}"
+echo -e "  ${DIM}oc get all -n $NAMESPACE         # View all resources${NC}"
+echo -e "  ${DIM}oc logs -f deployment/backend    # View backend logs${NC}"
+echo -e "  ${DIM}$0 --delete                      # Delete namespace${NC}"
+echo ""
+
+echo -e "${GREEN}${BOLD}Happy Hacking! 🚀${NC}\n"

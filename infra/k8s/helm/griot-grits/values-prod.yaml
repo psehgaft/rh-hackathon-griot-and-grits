@@ -1,0 +1,19 @@
+# Production guidance: use pre-built images; disable runtime clone.
+backend:
+  git:
+    enabled: false
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/gng-user42/griot-grits-backend
+    tag: "1.0.0"
+frontend:
+  git:
+    enabled: false
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/gng-user42/griot-grits-frontend
+    tag: "1.0.0"
+mongodb:
+  auth:
+    password: "REPLACE_WITH_SECRET_MANAGER"
+    adminPassword: "REPLACE_WITH_SECRET_MANAGER"
+minio:
+  rootPassword: "REPLACE_WITH_SECRET_MANAGER"

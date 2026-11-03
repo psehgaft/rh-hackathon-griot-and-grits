@@ -1,0 +1,86 @@
+{{- if .Values.backend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-backend
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+{{ include "griot-grits.labels" . | indent 8 }}
+        app.kubernetes.io/component: backend
+      annotations:
+        griot-grits.io/backend-revision: {{ .Values.backend.git.revision | quote }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.global.imagePullSecrets | indent 8 }}
+      {{- end }}
+      volumes:
+        - name: backend-src
+          emptyDir: {}
+      {{- if .Values.backend.git.enabled }}
+      initContainers:
+        - name: git-clone-backend
+          image: registry.access.redhat.com/ubi9/ubi-minimal
+          imagePullPolicy: IfNotPresent
+          command: ["bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              microdnf -y install git ca-certificates && microdnf clean all
+              rm -rf /workspace/src
+              mkdir -p /workspace
+              git clone --depth {{ .Values.backend.git.depth }} --branch {{ .Values.backend.git.revision }} {{ .Values.backend.git.repo }} /workspace/src
+          volumeMounts:
+            - name: backend-src
+              mountPath: /workspace
+      {{- end }}
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}{{ if .Values.backend.image.tag }}:{{ .Values.backend.image.tag }}{{ end }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.backend.containerPort }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: {{ include "griot-grits.fullname" . }}-backend-config
+            - secretRef:
+                name: {{ include "griot-grits.fullname" . }}-backend-secret
+          {{- if .Values.backend.git.enabled }}
+          volumeMounts:
+            - name: backend-src
+              mountPath: /workspace
+          workingDir: /workspace/src
+          {{- end }}
+          command: ["bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              python -m venv /tmp/venv
+              source /tmp/venv/bin/activate
+              pip install --no-cache-dir -r requirements.txt
+              exec uvicorn {{ .Values.backend.uvicorn.appModule }} --host 0.0.0.0 --port {{ .Values.backend.containerPort }} {{- range .Values.backend.uvicorn.extraArgs }} {{ . }}{{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.backend.health.path }}
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.backend.health.path }}
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+{{ toYaml .Values.backend.resources | indent 12 }}
+{{- end }}

@@ -1,0 +1,78 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-frontend
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+{{ include "griot-grits.labels" . | indent 8 }}
+        app.kubernetes.io/component: frontend
+      annotations:
+        griot-grits.io/frontend-revision: {{ .Values.frontend.git.revision | quote }}
+    spec:
+      volumes:
+        - name: frontend-src
+          emptyDir: {}
+      {{- if .Values.frontend.git.enabled }}
+      initContainers:
+        - name: git-clone-frontend
+          image: registry.access.redhat.com/ubi9/ubi-minimal
+          imagePullPolicy: IfNotPresent
+          command: ["bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              microdnf -y install git ca-certificates && microdnf clean all
+              rm -rf /workspace/src
+              mkdir -p /workspace
+              git clone --depth {{ .Values.frontend.git.depth }} --branch {{ .Values.frontend.git.revision }} {{ .Values.frontend.git.repo }} /workspace/src
+          volumeMounts:
+            - name: frontend-src
+              mountPath: /workspace
+      {{- end }}
+      containers:
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}{{ if .Values.frontend.image.tag }}:{{ .Values.frontend.image.tag }}{{ end }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.frontend.containerPort }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: {{ include "griot-grits.fullname" . }}-frontend-config
+          {{- if .Values.frontend.git.enabled }}
+          volumeMounts:
+            - name: frontend-src
+              mountPath: /workspace
+          workingDir: /workspace/src
+          {{- end }}
+          command: ["bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              npm ci || npm install
+              exec npm run dev -- -p {{ .Values.frontend.containerPort }} -H 0.0.0.0 {{- range .Values.frontend.nextjs.extraArgs }} {{ . }}{{- end }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+{{ toYaml .Values.frontend.resources | indent 12 }}
+{{- end }}

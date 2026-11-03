@@ -1,0 +1,20 @@
+{{- if .Values.backend.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-backend-config
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+data:
+  PROCESSING_MODE: {{ .Values.backend.env.PROCESSING_MODE | quote }}
+  WORKERS: {{ .Values.backend.env.WORKERS | quote }}
+
+  MONGODB_HOST: {{ default (printf "%s-mongodb" (include "griot-grits.fullname" .)) .Values.backend.mongodb.host | quote }}
+  MONGODB_PORT: {{ .Values.backend.mongodb.port | quote }}
+  MONGODB_DATABASE: {{ .Values.backend.mongodb.database | quote }}
+
+  MINIO_ENDPOINT: {{ default (printf "%s-minio" (include "griot-grits.fullname" .)) .Values.backend.minio.endpoint | quote }}
+  MINIO_PORT: {{ .Values.backend.minio.port | quote }}
+  MINIO_SECURE: {{ .Values.backend.minio.secure | quote }}
+  MINIO_BUCKET: {{ .Values.backend.minio.bucket | quote }}
+{{- end }}

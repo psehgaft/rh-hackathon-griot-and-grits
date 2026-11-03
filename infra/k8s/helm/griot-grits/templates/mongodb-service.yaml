@@ -1,0 +1,16 @@
+{{- if .Values.mongodb.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "griot-grits.fullname" . }}-mongodb
+  labels:
+{{ include "griot-grits.labels" . | indent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/component: mongodb
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: mongo
+      port: {{ .Values.mongodb.servicePort }}
+      targetPort: mongo
+{{- end }}

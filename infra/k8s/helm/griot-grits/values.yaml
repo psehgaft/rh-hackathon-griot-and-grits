@@ -1,0 +1,123 @@
+# Default values for griot-grits.
+# Tip: keep secrets out of Git; use External Secrets / Sealed Secrets or Argo CD Vault Plugin.
+
+global:
+  nameOverride: ""
+  fullnameOverride: ""
+  labels: {}
+  imagePullSecrets: []
+  openshift:
+    routes:
+      enabled: true
+      tlsTermination: edge
+      insecurePolicy: Redirect
+
+backend:
+  enabled: true
+  replicas: 1
+  image:
+    repository: registry.access.redhat.com/ubi9/python-311
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Runtime clone mode (demo/dev). For production prefer pre-built images.
+  git:
+    enabled: true
+    repo: "https://github.com/ORG/backend-repo.git"
+    revision: "main"   # set to commit SHA to force rollout per release
+    depth: 1
+  containerPort: 8000
+  uvicorn:
+    appModule: "app.main:app"
+    extraArgs: []
+  resources: {}
+  env:
+    PROCESSING_MODE: "standard"
+    WORKERS: "1"
+  health:
+    path: "/healthz"
+  mongodb:
+    host: ""      # defaults to chart mongodb service if empty
+    port: 27017
+    database: "griotgrits"
+    username: "griot"
+    password: "change-me"
+  minio:
+    endpoint: ""  # defaults to chart minio service if empty
+    port: 9000
+    secure: "false"
+    accessKey: "minioadmin"
+    secretKey: "minioadmin"
+    bucket: "artifacts"
+
+frontend:
+  enabled: true
+  replicas: 1
+  image:
+    repository: registry.access.redhat.com/ubi9/nodejs-20
+    tag: ""
+    pullPolicy: IfNotPresent
+  git:
+    enabled: true
+    repo: "https://github.com/ORG/frontend-repo.git"
+    revision: "main"   # set to commit SHA to force rollout per release
+    depth: 1
+  containerPort: 3000
+  nextjs:
+    extraArgs: []
+  resources: {}
+  env:
+    NEXT_PUBLIC_APP_NAME: "Griot & Grits"
+    NEXT_PUBLIC_AUTH_ENABLED: "false"
+    NEXT_PUBLIC_API_URL: ""   # override per env, defaults to backend route hostname
+
+mongodb:
+  enabled: true
+  replicas: 1
+  image:
+    repository: quay.io/sclorg/mongodb-container
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  servicePort: 27017
+  auth:
+    database: "griotgrits"
+    user: "griot"
+    password: "change-me"
+    adminPassword: "change-admin-me"
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: ""
+
+minio:
+  enabled: true
+  replicas: 1
+  image:
+    repository: minio/minio
+    tag: "RELEASE.2024-12-18T00-53-44Z"
+    pullPolicy: IfNotPresent
+  service:
+    apiPort: 9000
+    consolePort: 9001
+  rootUser: "minioadmin"
+  rootPassword: "minioadmin"
+  bucket: "artifacts"
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClassName: ""
+  public:
+    serverURL: ""           # e.g. https://minio-api.apps.example.com
+    browserRedirectURL: ""  # e.g. https://minio-console.apps.example.com
+
+whisper:
+  enabled: false
+  replicas: 1
+  image:
+    repository: onerahmet/openai-whisper-asr-webservice
+    tag: "v1.9.1"
+    pullPolicy: IfNotPresent
+  servicePort: 9000
+  resources: {}
+  env:
+    ASR_MODEL: "base"
+    ASR_ENGINE: "openai_whisper"
